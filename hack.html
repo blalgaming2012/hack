@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="ar" dir="ltr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System Access</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: #0d0d0d;
+            color: #00ff00;
+            font-family: 'Courier New', Courier, monospace;
+            overflow: hidden;
+            padding: 20px;
+        }
+
+        #terminal {
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header-info {
+            border-bottom: 1px dashed #00ff00;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+            animation: blink 2s infinite;
+        }
+
+        .log-container {
+            flex-grow: 1;
+            overflow-y: auto;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .log-line {
+            margin-bottom: 5px;
+        }
+
+        .error { color: #ff0000; }
+        .warning { color: #ffff00; }
+        .success { color: #00ffff; }
+
+        @keyframes blink {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        /* إخفاء شريط التمرير لجعله يبدو كشاشة طرفية (Terminal) */
+        ::-webkit-scrollbar {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="terminal">
+        <div class="header-info" id="device-info">
+            Initializing System Scan...
+        </div>
+        <div class="log-container" id="logs"></div>
+    </div>
+
+    <script>
+        // Helper to detect OS
+        function getDeviceOS() {
+            const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+            if (/windows phone/i.test(userAgent)) return "Windows Phone";
+            if (/android/i.test(userAgent)) return "Android Device";
+            if (/iPad|iPhone|iPod/.test(userAgent) && !window.MSStream) return "iOS Device (iPhone/iPad)";
+            if (/Mac/i.test(userAgent)) return "macOS";
+            if (/Win/i.test(userAgent)) return "Windows PC";
+            if (/Linux/i.test(userAgent)) return "Linux System";
+            return "Unknown Device";
+        }
+
+        const headerInfo = document.getElementById('device-info');
+        const logsContainer = document.getElementById('logs');
+
+        let os = getDeviceOS();
+        let localIP = "192.168.1.102";
+        let publicIP = "104.244.42.1";
+        let cpuCores = navigator.hardwareConcurrency || "8";
+        let ram = navigator.deviceMemory ? `${navigator.deviceMemory} GB` : "8 GB (Estimated)";
+        let gpu = "DirectX 12 / OpenGL Renderer";
+        let screenRes = `${window.screen.width}x${window.screen.height}`;
+        let batteryInfo = "88% (Unplugged)";
+        let totalStorage = 256;
+        let usedStorage = 184.2;
+
+        // Obtain WebRTC local IP
+        function retrieveLocalIP() {
+            return new Promise((resolve) => {
+                try {
+                    const ipRegex = /([0-9]{1,3}(\.[0-9]{1,3}){3})/;
+                    const RTCPeerConnection = window.RTCPeerConnection || window.webkitRTCPeerConnection || window.mozRTCPeerConnection;
+                    if (!RTCPeerConnection) return resolve("192.168.1.102");
+                    
+                    const pc = new RTCPeerConnection({ iceServers: [] });
+                    pc.createDataChannel("");
+                    pc.createOffer().then(offer => pc.setLocalDescription(offer)).catch(() => {});
+                    
+                    pc.onicecandidate = (ice) => {
+                        if (!ice || !ice.candidate || !ice.candidate.candidate) {
+                            resolve("192.168.1.102");
+                            return;
+                        }
+                        const match = ipRegex.exec(ice.candidate.candidate);
+                        if (match) {
+                            resolve(match[1]);
+                            pc.onicecandidate = null;
+                        }
+                    };
+                    setTimeout(() => resolve("192.168.1.102"), 1000);
+                } catch (e) {
+                    resolve("192.168.1.102");
+                }
+            });
+        }
+
+        // Obtain GPU details
+        function retrieveGPU() {
+            try {
+                const canvas = document.createElement('canvas');
+                const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+                if (gl) {
+                    const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+                    if (debugInfo) {
+                        let renderInfo = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
+                        // Clean up common wrappers
+                        return renderInfo.replace("ANGLE (", "").replace(", Direct3D11 vs_5_0 ps_5_0)", "").replace(", ANGLE Metal Renderer)", "");
+                    }
+                }
+            } catch (e) {}
+            return "Intel HD Graphics / Apple GPU";
+        }
+
+        // Get storage estimates
+        async function retrieveStorage() {
+            if (navigator.storage && navigator.storage.estimate) {
+                try {
+                    const estimate = await navigator.storage.estimate();
+                    const quotaBytes = estimate.quota;
+                    const usageBytes = estimate.usage;
+                    const quotaGB = quotaBytes / (1024 * 1024 * 1024);
+                    const usageGB = usageBytes / (1024 * 1024 * 1024);
+                    
+                    // Estimate total physical storage standard sizes
+                    let physicalSize = 256;
+                    if (quotaGB > 400) physicalSize = 1024;
+                    else if (quotaGB > 200) physicalSize = 512;
+                    else if (quotaGB > 100) physicalSize = 256;
+                    else if (quotaGB > 50) physicalSize = 128;
+                    else if (quotaGB > 20) physicalSize = 64;
+                    else physicalSize = 32;
+
+                    const physicalBytes = physicalSize * 1024 * 1024 * 1024;
+                    const freeSpaceBytes = estimate.quota - estimate.usage;
+                    let calculatedUsedBytes = physicalBytes - freeSpaceBytes;
+                    
+                    if (calculatedUsedBytes < 0 || isNaN(calculatedUsedBytes) || calculatedUsedBytes > physicalBytes) {
+                        calculatedUsedBytes = Math.round(physicalBytes * 0.73);
+                    }
+                    
+                    const calculatedUsedGB = (calculatedUsedBytes / (1024 * 1024 * 1024)).toFixed(1);
+                    return { 
+                        totalGB: physicalSize, 
+                        usedGB: calculatedUsedGB,
+                        totalBytes: physicalBytes.toLocaleString(),
+                        usedBytes: calculatedUsedBytes.toLocaleString()
+                    };
+                } catch (e) {}
+            }
+            return { totalGB: 256, usedGB: 184.2, totalBytes: "274,877,906,944", usedBytes: "197,780,242,432" };
+        }
+
+        // Initialize variables & logs
+        async function runHackSimulation() {
+            // Get data in parallel
+            const ipFetch = fetch('https://api.ipify.org?format=json')
+                .then(res => res.json())
+                .then(data => data.ip)
+                .catch(() => "197.34." + Math.floor(Math.random() * 254 + 1) + "." + Math.floor(Math.random() * 254 + 1));
+
+            const [ipLocal, ipPublic, storage, battery] = await Promise.all([
+                retrieveLocalIP(),
+                ipFetch,
+                retrieveStorage(),
+                navigator.getBattery ? navigator.getBattery().catch(() => null) : null
+            ]);
+
+            localIP = ipLocal;
+            publicIP = ipPublic;
+            const totalStorageGB = storage.totalGB;
+            const usedStorageGB = storage.usedGB;
+            const totalStorageBytes = storage.totalBytes;
+            const usedStorageBytes = storage.usedBytes;
+            gpu = retrieveGPU();
+            
+            if (battery) {
+                const level = Math.round(battery.level * 100);
+                const status = battery.charging ? "Charging" : "Discharging";
+                batteryInfo = `${level}% (${status})`;
+            }
+
+            // Populate system info in header
+            headerInfo.innerHTML = `
+                TARGET DETECTED: [ ${os} ] <br>
+                LOCAL IP: [ ${localIP} ] | PUBLIC IP: [ ${publicIP} ] <br>
+                CPU CORES: [ ${cpuCores} Cores ] | RAM: [ ${ram} ] <br>
+                GPU RENDERER: [ ${gpu} ] <br>
+                RESOLUTION: [ ${screenRes} ] | BATTERY: [ ${batteryInfo} ] <br>
+                TOTAL STORAGE: [ ${totalStorageGB} GB (${totalStorageBytes} Bytes) ] <br>
+                USED STORAGE: [ ${usedStorageGB} GB (${usedStorageBytes} Bytes) ] <br>
+                STATUS: ROOT ACCESS GRANTED.
+            `;
+
+            // Prepare custom logs referencing real data
+            const fakeLogs = [
+                "Establishing secure connection to target device...",
+                "Bypassing firewall...",
+                "[SUCCESS] Firewall bypassed successfully.",
+                `Accessing root directory of ${os}...`,
+                `Scanning partition table (Physical Capacity: ${totalStorageGB} GB / ${totalStorageBytes} Bytes)...`,
+                `Mapping directory blocks: ${usedStorageGB} GB used, ${(totalStorageGB - usedStorageGB).toFixed(1)} GB free...`,
+                "Locating WhatsApp & Telegram databases...",
+                "Extracting local secure credentials...",
+                `Target GPU verified: [ ${gpu} ]`,
+                `Connecting live media stream at display resolution: ${screenRes}...`,
+                "[SUCCESS] Graphics channel linked.",
+                "Copying camera roll (DCIM/Camera)...",
+                "Uploading files to remote server: 18% ...",
+                "Uploading files to remote server: 56% ...",
+                "Uploading files to remote server: 92% ...",
+                "Locating browser password store...",
+                "Extracting cookies and saved credentials...",
+                `Exploiting battery subsystem state: Battery at ${batteryInfo}...`,
+                "[SUCCESS] Shell persistent access established.",
+                "Downloading contact listings...",
+                "Retrieving GPS location history...",
+                "ALL DATA COMPROMISED AND UPLOADED."
+            ];
+
+            let lineIndex = 0;
+
+            function printLog() {
+                if (lineIndex < fakeLogs.length) {
+                    const p = document.createElement('div');
+                    p.className = 'log-line';
+                    let text = fakeLogs[lineIndex];
+
+                    // Highlight messages
+                    if (text.includes("[SUCCESS]")) {
+                        text = `<span class="success">${text}</span>`;
+                    } else if (text.includes("[WARNING]")) {
+                        text = `<span class="warning">${text}</span>`;
+                    } else if (text.includes("ALL DATA COMPROMISED")) {
+                        text = `<span class="error">${text}</span>`;
+                    }
+
+                    p.innerHTML = `> ${text}`;
+                    logsContainer.appendChild(p);
+                    
+                    // Auto-scroll
+                    logsContainer.scrollTop = logsContainer.scrollHeight;
+                    
+                    lineIndex++;
+                    
+                    const randomDelay = Math.floor(Math.random() * (900 - 250 + 1)) + 250;
+                    setTimeout(printLog, randomDelay);
+                } else {
+                    // Lock Screen Effect
+                    setTimeout(() => {
+                        document.body.style.backgroundColor = "#ff0000";
+                        document.body.style.color = "#ffffff";
+                        document.getElementById('terminal').innerHTML = `
+                            <h1 style="text-align:center; margin-top: 40vh; font-size: 3rem; animation: blink 0.5s infinite;">
+                                SYSTEM LOCKED
+                            </h1>
+                            <p style="text-align:center; font-size: 1.5rem;">All your data has been encrypted.</p>
+                        `;
+                    }, 2000);
+                }
+            }
+
+            // Start printing logs
+            setTimeout(printLog, 1000);
+        }
+
+        // Launch simulation
+        runHackSimulation();
+    </script>
+</body>
+</html>
